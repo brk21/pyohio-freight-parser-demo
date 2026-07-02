@@ -1,0 +1,19 @@
+{% extends "admin/change_form.html" %}
+{% comment %}
+Adds a "Save & next" button to the Confirmation change form. Clicking it posts
+the form with name="_save_and_next"; ConfirmationAdmin.response_change() sees
+that key, stamps the record `reviewed=now()`, and redirects to the next
+unreviewed confirmation. This recreates a real review-queue cockpit: the
+reviewer never has to go back to the changelist between records.
+{% endcomment %}
+
+{% block submit_buttons_bottom %}
+  {{ block.super }}
+  <div class="submit-row">
+    <input type="submit"
+           value="Save & next (mark reviewed)"
+           name="_save_and_next"
+           class="default"
+           title="Save any correction, mark this record reviewed, and jump to the next unreviewed confirmation.">
+  </div>
+{% endblock %}

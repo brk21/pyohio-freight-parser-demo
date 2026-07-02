@@ -1,0 +1,25 @@
+[project]
+name = "freight-finetune"
+version = "0.1.0"
+description = "Dataset prep + laptop-scale LoRA trainer (transformers/peft/trl) for freight-parser."
+requires-python = "==3.11.*"
+# CPU-only, laptop-friendly. torch resolves to the CPU/MPS build on macOS and to
+# the CPU wheel on Linux when the CPU index is used (see README). No CUDA, no
+# bitsandbytes in the default set — the 8-bit optimizer lives only in the
+# optional Axolotl (GPU) path.
+dependencies = [
+    "freight-schema",
+    "torch>=2.2",
+    "transformers>=4.44",
+    "peft>=0.11",
+    "trl>=0.9",
+    "datasets>=2.19",
+    "accelerate>=0.30",
+]
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["finetune"]

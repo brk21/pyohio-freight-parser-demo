@@ -1,0 +1,33 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.pytest_cache/
+.ruff_cache/
+
+# uv / venv
+.venv/
+
+# macOS
+.DS_Store
+
+# Environment
+.env
+
+# Private: the talk deck + speaker script are kept local, never published
+docs/*.pptx
+docs/TALK_SCRIPT.md
+
+# ---- Generated demo artifacts (rebuilt by `make demo`) ----
+# Trained LoRA adapters
+data/adapters/
+# DuckDB stores
+data/*.duckdb
+data/*.duckdb.wal
+# QA portal SQLite DB
+packages/qa_portal/*.sqlite3
+# Prepared training datasets + benchmark predictions
+data/training/
+data/predictions/
+# Hugging Face model cache (if pointed inside the repo)
+.hf_cache/

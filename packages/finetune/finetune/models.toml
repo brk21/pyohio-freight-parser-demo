@@ -1,0 +1,30 @@
+# Model registry — the switchable base models.
+#
+# The "older vs newer" story: two *same-size* (0.5B) open instruct models, one
+# from the prior generation and one from the current generation. Fine-tune both
+# on identical data and the benchmark shows the newer base pulling ahead "for
+# free". A third, even-lighter option is included for the fastest/smallest run.
+#
+# All ids are overridable without editing this file, via env vars:
+#   FREIGHT_MODEL_OLDER, FREIGHT_MODEL_NEWER, FREIGHT_MODEL_LIGHTWEIGHT
+# (handy for pointing at an air-gapped/local mirror).
+#
+# All three are tiny enough to LoRA-fine-tune and run on a CPU laptop.
+
+[models.older]
+base = "Qwen/Qwen2-0.5B-Instruct"          # prior generation
+generation = "prior gen"
+label = "older-0.5b"
+note = "solid baseline"
+
+[models.newer]                              # default in the demo
+base = "Qwen/Qwen2.5-0.5B-Instruct"         # current generation
+generation = "current gen"
+label = "newer-0.5b"
+note = "default; newer base, same size"
+
+[models.lightweight]
+base = "HuggingFaceTB/SmolLM2-360M-Instruct"
+generation = "current gen"
+label = "lightweight-360m"
+note = "lightest; fastest"

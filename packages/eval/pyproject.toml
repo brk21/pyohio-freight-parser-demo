@@ -1,0 +1,19 @@
+[project]
+name = "freight-eval"
+version = "0.1.0"
+description = "DuckDB benchmark framework + error categorization for freight-parser."
+requires-python = "==3.11.*"
+# eval benchmarks the *same* constrained-decoding inference the API serves, so
+# it depends on freight-serving (which in turn pulls in finetune + outlines).
+dependencies = [
+    "freight-schema",
+    "freight-serving",
+    "duckdb>=1.0",
+]
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["eval"]

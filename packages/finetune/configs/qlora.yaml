@@ -1,0 +1,95 @@
+# =============================================================================
+# qlora.yaml — PRODUCTION / GPU fine-tuning config (Axolotl), 4-bit QLoRA
+# =============================================================================
+#
+# WHAT THIS IS
+#   The same freight-confirmation LoRA job as lora.yaml, but quantizing the
+#   base model to 4-bit (QLoRA) so it fits on a *smaller consumer GPU* — think
+#   a single 12-16GB card instead of a data-center A100. The frozen base is
+#   loaded in NF4; only the small LoRA adapter trains in higher precision.
+#
+# HOW IT RELATES TO `make demo`
+#   Just like lora.yaml, this is the GPU/production path and is NOT part of
+#   `make demo`. The laptop demo fine-tunes tiny models on CPU with
+#   transformers/peft/trl; Axolotl + bitsandbytes 4-bit is intentionally NOT in
+#   the default dependencies (CUDA-only). Checked in as a faithful reference.
+#
+# HOW TO RUN IT (on a machine with an NVIDIA GPU + CUDA)
+#   pip install "axolotl[flash-attn]"        # in a separate GPU env
+#   python -m finetune.prep_dataset          # writes data/training/train.jsonl
+#   axolotl train configs/qlora.yaml
+#
+# WHY QLORA
+#   4-bit NF4 quantization shrinks the frozen base ~4x in VRAM. "Double quant"
+#   also quantizes the quantization constants for a little extra savings. The
+#   adapter still trains at full quality — you give up a little base fidelity
+#   to fine-tune an 8B model on hardware you might actually own.
+#
+# NOTE ON THE BASE MODEL ID
+#   Illustrative, same as lora.yaml. Swap in any ~7-8B open instruct base.
+# =============================================================================
+
+# --- Base model -------------------------------------------------------------
+base_model: Qwen/Qwen2.5-7B-Instruct        # illustrative; ~8B-class open instruct
+model_type: AutoModelForCausalLM
+tokenizer_type: AutoTokenizer
+
+# --- 4-bit quantization (the QLoRA bit) -------------------------------------
+load_in_8bit: false
+load_in_4bit: true                           # frozen base loaded in 4-bit
+bnb_4bit_quant_type: nf4                      # NormalFloat4 — better than plain int4
+bnb_4bit_use_double_quant: true               # quantize the quant constants too
+strict: false
+
+# --- Data (identical to lora.yaml) ------------------------------------------
+datasets:
+  - path: data/training/train.jsonl
+    type: alpaca
+    ds_type: json
+
+dataset_prepared_path: outputs/last_run_prepared
+val_set_size: 0.1
+output_dir: outputs/qlora-freight
+
+# --- Sequence handling ------------------------------------------------------
+sequence_len: 1024
+sample_packing: true
+pad_to_sequence_len: true
+
+# --- QLoRA adapter ----------------------------------------------------------
+# Narrower target set than plain LoRA: on a memory-constrained card we adapt
+# only the query and value projections. Fewer trainable params, less VRAM, and
+# for a tight extraction task like this it's usually plenty.
+adapter: qlora
+lora_r: 32
+lora_alpha: 16
+lora_dropout: 0.05
+lora_target_modules:
+  - q_proj
+  - v_proj
+
+# --- Optimization -----------------------------------------------------------
+num_epochs: 4
+micro_batch_size: 2
+gradient_accumulation_steps: 4               # effective batch = 8 per device
+optimizer: adamw_bnb_8bit                    # 8-bit Adam pairs naturally with QLoRA
+lr_scheduler: cosine
+learning_rate: 0.0002
+warmup_ratio: 0.03
+weight_decay: 0.0
+
+# --- Hardware / kernels -----------------------------------------------------
+bf16: auto
+tf32: true
+flash_attention: true
+gradient_checkpointing: true
+
+# --- Logging / checkpoints --------------------------------------------------
+logging_steps: 5
+evals_per_epoch: 2
+saves_per_epoch: 1
+save_total_limit: 2
+
+# --- Tokenizer specials -----------------------------------------------------
+special_tokens:
+  pad_token: "<|endoftext|>"

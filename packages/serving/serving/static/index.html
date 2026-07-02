@@ -1,0 +1,107 @@
+<!--
+  freight-parser playground — single self-contained page.
+
+  Talks to the serving HTTP API (GET /models, POST /parse, GET /ready).
+  No build step, no frameworks, no CDN: plain HTML + one stylesheet + one
+  vanilla-JS file so it works fully offline on a demo laptop. All behavior
+  lives in app.js; the only <script> is the one that loads it.
+-->
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>freight-parser · playground</title>
+<link rel="stylesheet" href="style.css" />
+
+<header class="app-header">
+  <div class="brand">
+    <span class="brand-mark" aria-hidden="true">▤</span>
+    <h1 class="brand-title">freight-parser <span class="dot-sep">·</span> <span class="brand-sub">playground</span></h1>
+  </div>
+  <div class="status" id="status" title="serving API status">
+    <span class="status-led" id="status-led" data-state="unknown"></span>
+    <span class="status-text" id="status-text">connecting…</span>
+  </div>
+</header>
+
+<main class="layout">
+  <!-- ── Input column ────────────────────────────────────────────── -->
+  <section class="panel panel-input" aria-labelledby="input-heading">
+    <h2 class="panel-heading" id="input-heading">Confirmation</h2>
+
+    <label class="field-label" for="confirmation">Paste a raw shipment confirmation</label>
+    <textarea
+      id="confirmation"
+      class="confirmation"
+      spellcheck="false"
+      autocapitalize="off"
+      autocomplete="off"
+      rows="8"
+    >ORION LOGISTICS  REF BOL-5521
+DLV 500 cartons JUN 27 ATL-&gt;DFW 0.50/lb
+PU 300 skids SEP 24 ATL-&gt;DFW 2.16
+DLV 120 pallets 24.18</textarea>
+
+    <label class="field-label" for="guidance">Guidance <span class="field-optional">(optional)</span></label>
+    <input
+      id="guidance"
+      class="guidance"
+      type="text"
+      autocomplete="off"
+      placeholder="e.g. there are 3 shipments in this message"
+    />
+
+    <div class="controls">
+      <div class="control-model">
+        <label class="field-label" for="model">Model</label>
+        <select id="model" class="model-select">
+          <option value="" disabled>loading models…</option>
+        </select>
+      </div>
+      <button id="parse-btn" class="parse-btn" type="button">
+        <span class="btn-label">Parse</span>
+        <span class="btn-spinner" aria-hidden="true"></span>
+      </button>
+    </div>
+
+    <p class="hint">
+      The constrained decoder guarantees the JSON <em>shape</em>; the fine-tuned
+      weights supply the <em>content</em>. Guidance steers content, never shape.
+    </p>
+  </section>
+
+  <!-- ── Output column ───────────────────────────────────────────── -->
+  <section class="panel panel-output" aria-labelledby="output-heading">
+    <div class="output-topbar">
+      <h2 class="panel-heading" id="output-heading">Parsed items</h2>
+      <span class="run-info" id="run-info" hidden></span>
+    </div>
+
+    <!-- Notes: fallback + reference-guard annotations, shown only when relevant -->
+    <div class="notes" id="notes">
+      <p class="note note-fallback" id="fallback-note" hidden></p>
+      <p class="note note-guard" id="guard-note" hidden>
+        reference guard nulled a fabricated value
+      </p>
+    </div>
+
+    <!-- Error banner -->
+    <div class="error" id="error" role="alert" hidden></div>
+
+    <!-- Output area: placeholder / loading / rendered JSON -->
+    <div class="output-body">
+      <div class="placeholder" id="placeholder">
+        Press <strong>Parse</strong> to send this confirmation to the model.
+      </div>
+      <div class="loading" id="loading" hidden>
+        <span class="loading-spinner" aria-hidden="true"></span>
+        <span class="loading-text">Parsing on CPU — this can take a few seconds…</span>
+      </div>
+      <pre class="output-json" id="output" hidden><code id="output-code"></code></pre>
+    </div>
+  </section>
+</main>
+
+<footer class="app-footer">
+  <span>self-hosted · fine-tuned open-source LLM · constrained decoding</span>
+</footer>
+
+<script src="app.js"></script>

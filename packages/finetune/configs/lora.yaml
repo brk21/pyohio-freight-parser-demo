@@ -1,0 +1,108 @@
+# =============================================================================
+# lora.yaml — PRODUCTION / GPU fine-tuning config (Axolotl)
+# =============================================================================
+#
+# WHAT THIS IS
+#   The "real" LoRA recipe you'd reach for on a GPU box: fine-tune an 8B-class
+#   open instruct model to parse freetext freight shipment confirmations into
+#   structured JSON. This is the grown-up sibling of the laptop demo.
+#
+# HOW IT RELATES TO `make demo`
+#   `make demo` fine-tunes *tiny* (0.5B / 360M) models on CPU with
+#   transformers + peft + trl (see finetune/models.toml). That path is what
+#   runs in the talk, in minutes, on a laptop.
+#
+#   THIS file is NOT part of `make demo`. Axolotl is a heavyweight GPU trainer
+#   (flash-attention, bitsandbytes 8-bit optimizer, sample packing) and is
+#   intentionally NOT in the package's default dependencies — installing it
+#   would drag in CUDA-only wheels that don't belong on a CPU teaching repo.
+#   It's checked in as a faithful reference: "here's what you'd actually run
+#   in production once you outgrow the laptop."
+#
+# HOW TO RUN IT (on a machine with an NVIDIA GPU + CUDA)
+#   pip install "axolotl[flash-attn]"        # in a separate GPU env
+#   python -m finetune.prep_dataset          # writes data/training/train.jsonl
+#   axolotl train configs/lora.yaml
+#
+# NOTE ON THE BASE MODEL ID
+#   The id below is ILLUSTRATIVE. Any ~7-8B open instruct model works; swap in
+#   whatever you're licensed for and have weights for. We default to the 7B
+#   sibling of the demo's "newer" base (Qwen2.5) so the story stays coherent:
+#   same family as the laptop run, just scaled up. A Llama-3.1-8B-Instruct-class
+#   base is an equally good drop-in (change model_type/special_tokens to match).
+# =============================================================================
+
+# --- Base model -------------------------------------------------------------
+base_model: Qwen/Qwen2.5-7B-Instruct        # illustrative; ~8B-class open instruct
+model_type: AutoModelForCausalLM
+tokenizer_type: AutoTokenizer
+
+# --- Precision / quantization -----------------------------------------------
+# Plain LoRA: the base stays in bf16 (no 4-bit). See qlora.yaml for the 4-bit
+# variant that fits smaller consumer GPUs.
+load_in_8bit: false
+load_in_4bit: false
+strict: false
+
+# --- Data -------------------------------------------------------------------
+# Same alpaca-formatted file the CPU demo trains on, produced by
+# `python -m finetune.prep_dataset`. Each row is:
+#   {"instruction": <shared INSTRUCTION>, "input": <raw confirmation>,
+#    "output": <gold JSON string>}
+datasets:
+  - path: data/training/train.jsonl
+    type: alpaca
+    ds_type: json
+
+dataset_prepared_path: outputs/last_run_prepared
+val_set_size: 0.1                            # hold out 10% for eval during training
+output_dir: outputs/lora-freight
+
+# --- Sequence handling ------------------------------------------------------
+sequence_len: 1024                           # confirmations + JSON fit comfortably
+sample_packing: true                         # pack short freight examples -> big GPU win
+pad_to_sequence_len: true
+
+# --- LoRA adapter -----------------------------------------------------------
+# We never touch the base weights; we train a small low-rank adapter and merge
+# it later (see quantize.md). r=32 / alpha=16 is a solid extraction default.
+adapter: lora
+lora_r: 32
+lora_alpha: 16
+lora_dropout: 0.05
+lora_target_modules:                         # attention + MLP projections
+  - q_proj
+  - k_proj
+  - v_proj
+  - o_proj
+  - up_proj
+  - down_proj
+  - gate_proj
+
+# --- Optimization -----------------------------------------------------------
+num_epochs: 4                                # small, structured dataset -> a few passes
+micro_batch_size: 2
+gradient_accumulation_steps: 4               # effective batch = 8 per device
+optimizer: adamw_bnb_8bit                    # 8-bit Adam (bitsandbytes) saves VRAM
+lr_scheduler: cosine
+learning_rate: 0.0002
+warmup_ratio: 0.03
+weight_decay: 0.0
+
+# --- Hardware / kernels -----------------------------------------------------
+bf16: auto                                   # bf16 on Ampere+; falls back gracefully
+tf32: true
+flash_attention: true                        # requires a CUDA GPU + flash-attn
+gradient_checkpointing: true
+
+# --- Logging / checkpoints --------------------------------------------------
+logging_steps: 5
+evals_per_epoch: 2
+saves_per_epoch: 1
+save_total_limit: 2
+
+# --- Tokenizer specials -----------------------------------------------------
+# Matches the Qwen2.5 base above. If you swap to a Llama-class base, update the
+# pad token accordingly (e.g. <|end_of_text|>).
+special_tokens:
+  pad_token: "<|endoftext|>"

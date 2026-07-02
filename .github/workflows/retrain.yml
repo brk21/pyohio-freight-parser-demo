@@ -1,0 +1,54 @@
+# Illustrative scheduled retrain — the production cadence, on CPU.
+#
+# This mirrors the "monthly retraining" loop from the talk: on the 1st of each
+# month (or on demand), rebuild the training set from newly-reviewed labels,
+# retrain a candidate, benchmark it, and promote it ONLY if it beats the
+# incumbent. It is intentionally illustrative: the demo's tiny models train in a
+# couple of minutes on a CPU runner, so no GPU is required. In a real deployment
+# this would push a promoted adapter to your serving infra.
+name: retrain
+
+on:
+  schedule:
+    # 06:00 UTC on the 1st of every month.
+    - cron: "0 6 1 * *"
+  workflow_dispatch: {}  # allow manual runs from the Actions tab
+
+jobs:
+  retrain:
+    runs-on: ubuntu-latest  # CPU only — no GPU needed for the demo-scale models
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v5
+        with:
+          python-version: "3.11"
+
+      - name: Sync dependencies
+        run: uv sync
+
+      - name: Seed the QA portal (stand-in for real reviewed data)
+        run: |
+          uv run python packages/qa_portal/manage.py migrate --noinput
+          uv run python packages/qa_portal/manage.py seed --auto-review
+
+      - name: Generate synthetic data + prep an initial benchmark
+        run: |
+          uv run python -m synthetic.cli generate --n 180 --seed 0
+          uv run python -m synthetic.cli export --out data/training/synthetic.jsonl
+          uv run python packages/qa_portal/manage.py export_training --out data/training/qa_real.jsonl
+          uv run python -m finetune.prep_dataset --holdout-count 10 --max-train 130 --force
+
+      - name: Closed-loop retrain (benchmark gate; promote only if it wins)
+        run: uv run python scripts/retrain.py
+
+      - name: Upload the promoted adapter + predictions
+        uses: actions/upload-artifact@v4
+        with:
+          name: promoted-adapter
+          path: |
+            data/adapters/current
+            data/predictions
+          if-no-files-found: ignore
