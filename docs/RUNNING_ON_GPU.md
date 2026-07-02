@@ -111,6 +111,51 @@ Reference result (150 held-out rows, seeds as above):
 | `newer-0.5b` | Qwen2.5-0.5B-Instruct | 88.0 | 98.9 |
 | `older-0.5b` | Qwen2-0.5B-Instruct | 79.3 | 98.0 |
 
+### Keeping it served for a demo
+
+`scripts/serve_gpu.sh` wraps the serve command with the GPU env
+(`FREIGHT_GPU=1`, `TORCHDYNAMO_DISABLE=1`, `FREIGHT_DEFAULT_MODEL=production`). Run
+it under a process manager so it survives disconnects and reboots.
+
+tmux (survives SSH disconnects, but not a reboot):
+
+```bash
+tmux new-session -d -s freight scripts/serve_gpu.sh
+tmux attach -t freight        # watch logs; Ctrl-b then d to detach
+```
+
+systemd user service (survives reboots and auto-restarts on crash). Save this as
+`~/.config/systemd/user/freight.service`:
+
+```ini
+[Unit]
+Description=freight-parser GPU serving
+[Service]
+WorkingDirectory=%h/projects/pyohio-freight-parser-demo
+Environment=PATH=%h/.local/bin:/usr/local/bin:/usr/bin:/bin
+ExecStart=%h/projects/pyohio-freight-parser-demo/scripts/serve_gpu.sh
+Restart=always
+RestartSec=3
+[Install]
+WantedBy=default.target
+```
+
+```bash
+systemctl --user daemon-reload
+systemctl --user enable --now freight.service
+sudo loginctl enable-linger "$USER"   # start the service at boot, before any login
+```
+
+Reach it from a laptop on the same VPN with an SSH port-forward, then open
+`http://localhost:8000/`:
+
+```bash
+ssh -L 8000:localhost:8000 <user>@<box>
+```
+
+After any restart, the first parse per model recompiles its decoder (a few
+seconds), so parse once per model to warm them before going live.
+
 ## 5. What changes, what doesn't
 
 | | CPU laptop demo | GPU / H100 |
