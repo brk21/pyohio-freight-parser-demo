@@ -166,17 +166,21 @@ serving API all use the *same* `ShipmentLine` definition and the *same* prompt
 
 ### The switchable models
 
-The registry (`packages/finetune/models.toml`) ships three tiny open models; any
-id is overridable via `FREIGHT_MODEL_<NAME>` env vars.
+The registry (`packages/finetune/models.toml`) ships three tiny open models `make
+demo` uses on a laptop, plus a `production` slot used only on the GPU path; any id
+is overridable via `FREIGHT_MODEL_<NAME>` env vars.
 
 | Name | Base model | Generation | Role |
 |------|-----------|-----------|------|
 | `older` | `Qwen/Qwen2-0.5B-Instruct` | prior gen | baseline |
-| `newer` ✓ | `Qwen/Qwen2.5-0.5B-Instruct` | current gen | **default** |
+| `newer` ✓ | `Qwen/Qwen2.5-0.5B-Instruct` | current gen | **laptop default** |
 | `lightweight` | `HuggingFaceTB/SmolLM2-360M-Instruct` | current gen | lightest/fastest |
+| `production` | `Qwen/Qwen2.5-7B-Instruct` | current gen | 8B-class tier — GPU only (see below) |
 
 Same size, same data, two generations: the benchmark makes the "newer base wins
-for free" story visible.
+for free" story visible. The `production` slot is untrained/inert on a laptop
+(`make demo` never touches it); on a GPU it's the headline 8B — see
+[docs/RUNNING_ON_GPU.md](docs/RUNNING_ON_GPU.md).
 
 ### Valid JSON by construction
 
