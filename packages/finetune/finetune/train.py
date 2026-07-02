@@ -21,7 +21,7 @@ from pathlib import Path
 from freight_schema import build_prompt
 from freight_schema.paths import adapter_dir, training_dir
 
-from finetune.registry import get_spec
+from finetune.registry import get_spec, model_names
 
 
 def _count_hint(n: int) -> str:
@@ -91,6 +91,20 @@ def train_model(
     from transformers import AutoModelForCausalLM, AutoTokenizer
     from trl import SFTConfig, SFTTrainer
 
+    # GPU recipe is strictly opt-in (FREIGHT_GPU=1) so the committed default path
+    # stays the CPU laptop demo — fp32, use_cpu, narrowed LoRA — byte-for-byte
+    # unchanged. See docs/RUNNING_ON_GPU.md. On the GPU box we widen the LoRA to
+    # all attention+MLP projections and train in bf16 on CUDA.
+    gpu = os.environ.get("FREIGHT_GPU") == "1"
+    # LoRA targets: default to the CPU-narrowed (q,v); env can widen to production
+    # (q,k,v,o,up,down,gate). Both generations train with identical targets so the
+    # older-vs-newer comparison stays fair.
+    target_modules = [
+        m.strip()
+        for m in os.environ.get("FREIGHT_LORA_TARGETS", "q_proj,v_proj").split(",")
+        if m.strip()
+    ]
+
     torch.set_num_threads(os.cpu_count() or 4)
     spec = get_spec(name)
     train_file = train_file or (training_dir() / "train.jsonl")
@@ -100,21 +114,28 @@ def train_model(
     dataset = _load_alpaca_as_prompt_completion(
         train_file, max_train, guidance_frac=guidance_frac, seed=seed
     )
-    print(f"[train:{name}] base={spec.base}  rows={len(dataset)}  epochs={epochs}")
+    print(f"[train:{name}] base={spec.base}  rows={len(dataset)}  epochs={epochs}  "
+          f"gpu={gpu}  lora_targets={target_modules}")
 
     tokenizer = AutoTokenizer.from_pretrained(spec.base)
     if tokenizer.pad_token is None:
         tokenizer.pad_token = tokenizer.eos_token
+    # fp32 weights even on the GPU. bf16 LoRA SFT on this data diverged
+    # deterministically (finite loss but a NaN *backward* gradient at ~0.4 epoch
+    # once the model got very confident — a bf16 backward-precision failure). fp32
+    # + TF32 matmul is numerically stable and still fast on the H100. Inference
+    # still serves in bf16 (forward-only, no backward); see registry.py.
     model = AutoModelForCausalLM.from_pretrained(spec.base, dtype=torch.float32)
 
-    # LoRA with the production *shape* (r=32, alpha=16, dropout=0.05) but narrowed
-    # targets (q_proj, v_proj) for CPU speed. Production targeted all attention +
-    # MLP projections (see configs/lora.yaml: q,k,v,o,up,down,gate).
+    # LoRA with the production *shape* (r=32, alpha=16, dropout=0.05). Targets are
+    # narrowed to (q_proj, v_proj) for CPU speed by default; the GPU run widens
+    # them via FREIGHT_LORA_TARGETS to all attention + MLP projections to match
+    # production (see configs/lora.yaml: q,k,v,o,up,down,gate).
     peft_config = LoraConfig(
         r=32,
         lora_alpha=16,
         lora_dropout=0.05,
-        target_modules=["q_proj", "v_proj"],
+        target_modules=target_modules,
         bias="none",
         task_type="CAUSAL_LM",
     )
@@ -128,11 +149,17 @@ def train_model(
         max_length=seq_len,
         packing=False,
         completion_only_loss=True,   # loss only on the JSON, not the prompt
-        use_cpu=True,                # fp32 on CPU; no GPU anywhere
-        bf16=False,
+        use_cpu=not gpu,             # CPU by default; CUDA fp32+TF32 when FREIGHT_GPU=1
+        bf16=False,                  # fp32 weights on GPU too (see model load above)
         fp16=False,
+        tf32=True if gpu else None,  # TF32 matmul: fp32 range, ~bf16 speed on Ampere+
         optim="adamw_torch",
         lr_scheduler_type="cosine",
+        # A short warmup + gradient clipping on the GPU path (this task converges in
+        # <0.3 epoch, so a gentle ramp keeps early steps stable). CPU default stays
+        # byte-for-byte (SFTConfig defaults: warmup_ratio=0.0, max_grad_norm=1.0).
+        warmup_ratio=0.03 if gpu else 0.0,
+        max_grad_norm=1.0,
         logging_steps=10,
         save_strategy="no",          # we save once at the end via save_model
         report_to=[],
@@ -156,7 +183,7 @@ def train_model(
 
 def main(argv: list[str] | None = None) -> int:
     p = argparse.ArgumentParser(description=__doc__)
-    p.add_argument("--model", default="newer", choices=["older", "newer", "lightweight"])
+    p.add_argument("--model", default="newer", choices=model_names())
     p.add_argument("--train-file", type=Path, default=None)
     p.add_argument("--epochs", type=int, default=1)
     p.add_argument("--batch-size", type=int, default=2)

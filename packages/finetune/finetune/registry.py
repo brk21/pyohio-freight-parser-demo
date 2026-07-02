@@ -84,7 +84,14 @@ def model_names() -> list[str]:
 
 
 def load_base_and_tokenizer(base_id: str):
-    """Load a base causal-LM + tokenizer for CPU (fp32).
+    """Load a base causal-LM + tokenizer.
+
+    Defaults to CPU + fp32 — the laptop demo path, unchanged. When ``FREIGHT_GPU=1``
+    is set (the H100/production path, see docs/RUNNING_ON_GPU.md) the base loads in
+    bf16 on CUDA so an 8B-class model serves fast; a plain fp32-CPU 7B would be
+    28 GB of RAM and unusably slow through outlines. This is the only knob the
+    serving/eval layers need to run the production tier — everything downstream
+    (constrained decode, Decimal round-trip, reference guard) is identical.
 
     Kept import-local so merely importing the registry (e.g. to list models in
     the API) doesn't pull in torch/transformers.
@@ -92,10 +99,15 @@ def load_base_and_tokenizer(base_id: str):
     import torch
     from transformers import AutoModelForCausalLM, AutoTokenizer
 
+    gpu = os.environ.get("FREIGHT_GPU") == "1" and torch.cuda.is_available()
     tokenizer = AutoTokenizer.from_pretrained(base_id)
     if tokenizer.pad_token is None:
         tokenizer.pad_token = tokenizer.eos_token
-    model = AutoModelForCausalLM.from_pretrained(base_id, dtype=torch.float32)
+    model = AutoModelForCausalLM.from_pretrained(
+        base_id,
+        dtype=torch.bfloat16 if gpu else torch.float32,
+        device_map="cuda" if gpu else None,
+    )
     return model, tokenizer
 
 

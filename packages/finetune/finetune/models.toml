@@ -28,3 +28,15 @@ base = "HuggingFaceTB/SmolLM2-360M-Instruct"
 generation = "current gen"
 label = "lightweight-360m"
 note = "lightest; fastest"
+
+# The production tier — an 8B-class instruct model, the "real" model from the
+# talk. NOT trained or served by `make demo` (a 0.5B is the laptop story); it has
+# no adapter on a laptop, so the playground shows it as untrained and serving
+# falls back to `newer`. On the H100 it's trained (FREIGHT_GPU=1, widened LoRA)
+# and served as the default (FREIGHT_DEFAULT_MODEL=production). Same family as the
+# newer 0.5B (Qwen2.5), just scaled up. See docs/RUNNING_ON_GPU.md.
+[models.production]
+base = "Qwen/Qwen2.5-7B-Instruct"           # Apache-2.0; 8B-class production tier
+generation = "current gen"
+label = "production-7b"
+note = "8B-class production tier (GPU); the talk's headline model"
