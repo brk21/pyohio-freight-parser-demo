@@ -12,7 +12,9 @@ The flow:
 2. ``outlines`` constrained decoding against :class:`DecodeConfirmation` (a
    float+Literal schema; see freight_schema for why Decimal can't be the target).
    The decoder *guarantees the JSON shape*; the fine-tuned weights supply the
-   content. Greedy (temperature 0) so a given input always parses the same way.
+   content. Greedy decoding (``do_sample=False``, forced in the model registry so
+   it overrides the base's sampling generation_config) so a given input parses the
+   same way on a fixed machine.
 3. Re-validate the raw JSON into the canonical Decimal schema.
 4. Apply the reference anti-hallucination guard.
 """
@@ -111,7 +113,11 @@ def parse(text: str, guidance: str | None = None, model: str | None = None) -> P
 
     prompt = build_prompt(text, guidance)
     t0 = time.time()
-    raw = loaded.generator(prompt, max_new_tokens=MAX_NEW_TOKENS)
+    # do_sample=False is redundant with the greedy generation_config set at load
+    # (registry.load_base_and_tokenizer), but we pass it explicitly so the decode
+    # call states its own determinism contract. outlines forwards it to
+    # transformers' generate().
+    raw = loaded.generator(prompt, max_new_tokens=MAX_NEW_TOKENS, do_sample=False)
     duration = time.time() - t0
 
     confirmation = decode_to_confirmation(raw)

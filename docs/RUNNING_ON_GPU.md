@@ -187,6 +187,18 @@ seconds), so parse once per model to warm them before going live.
   python-dev headers installed). `torch.compile` is only a performance
   optimization, so forcing eager is correct and fast enough here.
 - **Train/serve prompt parity** comes from the shared `build_prompt`; keep using it.
+- **Greedy decoding is forced, not inherited.** The instruct bases ship a *sampling*
+  `generation_config` (Qwen2.5: `do_sample=True, temperature=0.7, top_p=0.8,
+  top_k=20`), and `outlines` forwards generation to `transformers` without
+  overriding it. So `registry.load_base_and_tokenizer` sets `do_sample=False` (and
+  clears `temperature`/`top_p`/`top_k`) at load, and `serving.inference.parse`
+  passes `do_sample=False` too. Without that the served model would sample and a
+  parse would not be reproducible. Even with greedy, determinism is "within a fixed
+  environment": on the bf16 CUDA path, non-deterministic matmul/attention kernels
+  plus low-precision near-ties can occasionally flip an argmax. If you need
+  bit-identical runs, add `torch.use_deterministic_algorithms(True)` and
+  `CUBLAS_WORKSPACE_CONFIG=:4096:8` (small speed cost); the CPU fp32 demo is already
+  reproducible in practice.
 
 ## 7. Production-fidelity alternative: Axolotl
 
