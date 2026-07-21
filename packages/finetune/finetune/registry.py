@@ -83,6 +83,27 @@ def model_names() -> list[str]:
 # ---------------------------------------------------------------------------
 
 
+def _force_greedy(generation_config):
+    """Force greedy decoding on a HuggingFace ``generation_config``, in place.
+
+    Instruct bases ship a *sampling* config (Qwen2.5, for instance, defaults to
+    ``do_sample=True, temperature=0.7, top_p=0.8, top_k=20``), and ``outlines``
+    forwards generation to ``transformers`` without overriding it. Without this the
+    served model would sample and a given input would NOT parse the same way twice.
+    Clearing the sampling params (not just flipping the flag) also silences
+    transformers' "temperature is set but do_sample=False" warning. Applied at load
+    so serving *and* eval decode identically; the residual GPU/bf16
+    float-nondeterminism caveats are in docs/RUNNING_ON_GPU.md.
+
+    Returns the same object for convenience.
+    """
+    generation_config.do_sample = False
+    generation_config.temperature = None
+    generation_config.top_p = None
+    generation_config.top_k = None
+    return generation_config
+
+
 def load_base_and_tokenizer(base_id: str):
     """Load a base causal-LM + tokenizer.
 
@@ -108,6 +129,10 @@ def load_base_and_tokenizer(base_id: str):
         dtype=torch.bfloat16 if gpu else torch.float32,
         device_map="cuda" if gpu else None,
     )
+
+    # Force greedy decoding regardless of the base's shipped (sampling)
+    # generation_config. See _force_greedy for the full rationale.
+    _force_greedy(model.generation_config)
     return model, tokenizer
 
 
